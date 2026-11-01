@@ -1,0 +1,12 @@
+node_modules/
+.next/
+dist/
+.env
+.env.local
+*.tsbuildinfo
+
+# 本地数据库文件和 SQLite 日志
+backend/data/
+
+# Neon 项目关联信息
+.neon
