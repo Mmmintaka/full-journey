@@ -3,6 +3,7 @@ const { mkdtempSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join } = require('node:path');
 const assert = require('node:assert/strict');
+const Database = require('better-sqlite3');
 
 const directory = mkdtempSync(join(tmpdir(), 'task-integration-'));
 let server;
@@ -22,27 +23,44 @@ const stop = () => new Promise((resolve) => { server.once('exit', resolve); serv
 const call = (path, options) => fetch(`http://localhost:4139${path}`, options);
 const request = (method, body, cookie) => ({ method, headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
 async function run(postgres, serverless = false) {
+  if (!postgres) {
+    const legacy = new Database(join(directory, 'tasks.sqlite'));
+    legacy.exec(`CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL);
+      CREATE TABLE tasks (id TEXT PRIMARY KEY, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0, user_id TEXT REFERENCES users(id));
+      INSERT INTO users VALUES ('legacy-user', 'legacy', 'legacy-hash');
+      INSERT INTO tasks VALUES ('legacy-task', '旧任务', 0, 'legacy-user');`);
+    legacy.close();
+  }
   await start(postgres, serverless);
+  if (!postgres) {
+    const migrated = new Database(join(directory, 'tasks.sqlite'), { readonly: true });
+    assert.deepEqual(migrated.prepare('SELECT title, priority FROM tasks WHERE id = ?').get('legacy-task'), { title: '旧任务', priority: 'medium' });
+    migrated.close();
+  }
   let result = await call('/tasks'); assert.equal(result.status, 401);
   for (const username of ['alice', 'bobby']) {
     result = await call('/auth/register', request('POST', { username, password: 'password123' })); assert.equal(result.status, 201);
   }
   result = await call('/auth/login', request('POST', { username: 'alice', password: 'password123' })); assert.equal(result.status, 200); const alice = result.headers.get('set-cookie').split(';')[0];
   result = await call('/auth/login', request('POST', { username: 'bobby', password: 'password123' })); assert.equal(result.status, 200); const bobby = result.headers.get('set-cookie').split(';')[0];
-  result = await call('/tasks', request('POST', { title: '测试任务' }, alice)); assert.equal(result.status, 201); const task = await result.json();
+  result = await call('/tasks', request('POST', { title: '测试任务' }, alice)); assert.equal(result.status, 201); const task = await result.json(); assert.equal(task.priority, 'medium');
   result = await call('/tasks', request('GET', null, bobby)); assert.deepEqual(await result.json(), []);
   result = await call(`/tasks/${task.id}`, request('PATCH', { completed: true }, bobby)); assert.equal(result.status, 404);
   result = await call(`/tasks/${task.id}`, request('DELETE', null, bobby)); assert.equal(result.status, 404);
-  result = await call(`/tasks/${task.id}`, request('PATCH', { completed: true }, alice)); assert.equal(result.status, 200); assert.equal((await result.json()).completed, true);
+  result = await call(`/tasks/${task.id}`, request('PATCH', { priority: 'high' }, bobby)); assert.equal(result.status, 404);
+  result = await call(`/tasks/${task.id}`, request('PATCH', { priority: 'high' }, alice)); assert.equal(result.status, 200); assert.equal((await result.json()).priority, 'high');
+  result = await call(`/tasks/${task.id}`, request('PATCH', { priority: 'urgent' }, alice)); assert.equal(result.status, 400);
+  result = await call('/tasks', request('POST', { title: '无效', priority: null }, alice)); assert.equal(result.status, 400);
+  result = await call(`/tasks/${task.id}`, request('PATCH', { completed: true }, alice)); assert.equal(result.status, 200); const updated = await result.json(); assert.equal(updated.completed, true); assert.equal(updated.priority, 'high');
   result = await call('/tasks', request('GET', null, alice)); assert.equal((await result.json()).length, 1);
   for (let i = 0; i < 6; i++) {
-    result = await call('/tasks', request('POST', { title: `分页任务 ${i}` }, alice)); assert.equal(result.status, 201);
+    result = await call('/tasks', request('POST', { title: `分页任务 ${i}`, priority: i === 0 ? 'low' : 'high' }, alice)); assert.equal(result.status, 201); assert.equal((await result.json()).priority, i === 0 ? 'low' : 'high');
   }
   result = await call('/tasks?status=active&page=1&pageSize=3', request('GET', null, alice)); assert.equal(result.status, 200);
   const first = await result.json(); assert.equal(first.total, 6); assert.equal(first.totalPages, 2); assert.equal(first.items.length, 3); assert.deepEqual(first.counts, { all: 7, active: 6, completed: 1 });
   result = await call('/tasks?status=active&page=2&pageSize=3', request('GET', null, alice)); const second = await result.json(); assert.equal(second.items.length, 3);
   assert.equal(new Set([...first.items, ...second.items].map(t => t.id)).size, 6);
-  result = await call('/tasks?status=completed&page=1&pageSize=2', request('GET', null, alice)); const completed = await result.json(); assert.equal(completed.total, 1); assert.equal(completed.items[0].id, task.id);
+  result = await call('/tasks?status=completed&page=1&pageSize=2', request('GET', null, alice)); const completed = await result.json(); assert.equal(completed.total, 1); assert.equal(completed.items[0].id, task.id); assert.equal(completed.items[0].priority, 'high');
   result = await call('/tasks?status=active&page=2&pageSize=2&search=' + encodeURIComponent('分页任务'), request('GET', null, alice));
   assert.equal(result.status, 200); const searched = await result.json(); assert.equal(searched.search, '分页任务'); assert.equal(searched.total, 6); assert.equal(searched.items.length, 2); assert.deepEqual(searched.counts, { all: 6, active: 6, completed: 0 });
   result = await call('/tasks?status=active&page=1&pageSize=3&sort=newest&search=' + encodeURIComponent('分页任务'), request('GET', null, alice));

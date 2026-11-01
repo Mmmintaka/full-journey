@@ -5,7 +5,7 @@ import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSa
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { initializeDatabase, createSession, createUser, deleteSession, deleteTask, findSession, findTask, findUserByName, insertTask, listTasks, listTasksPage, updateTask, type Task, type TaskStatus, type TaskSort } from "./database";
+import { initializeDatabase, createSession, createUser, deleteSession, deleteTask, findSession, findTask, findUserByName, insertTask, listTasks, listTasksPage, updateTask, type Task, type TaskStatus, type TaskSort, type Priority } from "./database";
 
 // Neon CLI 将连接配置放在项目根目录；显式环境变量优先，其次 .env.local，再是 .env。
 if (process.env.NODE_ENV !== "test") {
@@ -146,12 +146,18 @@ app.get("/tasks", async (req, res) => {
       typeof pageSize !== "string" || !/^[1-9]\d?$/.test(pageSize) || Number(pageSize) > 50) {
     res.status(400).json({ error: "筛选或分页参数不合法。" }); return;
   }
-  res.json(await listTasksPage(res.locals.user.id, status as TaskStatus, Number(page), Number(pageSize), search.trim(), sort as TaskSort));
+  const result = await listTasksPage(res.locals.user.id, status as TaskStatus, Number(page), Number(pageSize), search.trim(), sort as TaskSort);
+  res.json({ ...result, capabilities: { priority: true } });
 });
+function validPriority(value: unknown): value is Priority {
+  return value === "low" || value === "medium" || value === "high";
+}
 app.post("/tasks", async (req, res) => {
   const title: unknown = req.body?.title;
   if (typeof title !== "string" || !title.trim() || title.trim().length > 100) { res.status(400).json({ error: "任务标题须为 1 到 100 个字符。" }); return; }
-  const task: Task = { id: randomUUID(), title: title.trim(), completed: false };
+  const priority: unknown = req.body?.priority === undefined ? "medium" : req.body.priority;
+  if (!validPriority(priority)) { res.status(400).json({ error: "请选择有效的任务优先级。" }); return; }
+  const task: Task = { id: randomUUID(), title: title.trim(), completed: false, priority };
   await insertTask(task, res.locals.user.id);
   res.status(201).json(task);
 });
@@ -160,14 +166,16 @@ app.patch("/tasks/:id", async (req, res) => {
   if (!task) { res.status(404).json({ error: "任务不存在。" }); return; }
   const body: unknown = req.body;
   if (!body || typeof body !== "object" || Array.isArray(body)) { res.status(400).json({ error: "请提供要修改的任务内容。" }); return; }
-  const { title, completed } = body as Record<string, unknown>;
-  if ((title === undefined && completed === undefined) ||
+  const { title, completed, priority } = body as Record<string, unknown>;
+  if ((title === undefined && completed === undefined && priority === undefined) ||
     (title !== undefined && (typeof title !== "string" || !title.trim() || title.trim().length > 100)) ||
-    (completed !== undefined && typeof completed !== "boolean")) {
-    res.status(400).json({ error: "请提供有效的标题或完成状态。" }); return;
+    (completed !== undefined && typeof completed !== "boolean") ||
+    (priority !== undefined && !validPriority(priority))) {
+    res.status(400).json({ error: "请提供有效的标题、完成状态或优先级。" }); return;
   }
   if (typeof title === "string") task.title = title.trim();
   if (typeof completed === "boolean") task.completed = completed;
+  if (validPriority(priority)) task.priority = priority;
   await updateTask(task, res.locals.user.id);
   res.json(task);
 });

@@ -3,9 +3,10 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { TaskPage, TaskStatus, TaskSort } from "./database";
 
-export type Task = { id: string; title: string; completed: boolean };
+export type Priority = "low" | "medium" | "high";
+export type Task = { id: string; title: string; completed: boolean; priority: Priority };
 export type User = { id: string; username: string; passwordHash: string };
-type TaskRow = { id: string; title: string; completed: number };
+type TaskRow = { id: string; title: string; completed: number; priority: Priority };
 
 const databasePath = process.env.DATABASE_PATH ?? resolve(__dirname, "../data/tasks.sqlite");
 mkdirSync(dirname(databasePath), { recursive: true });
@@ -19,7 +20,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY, title TEXT NOT NULL,
     completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
-    user_id TEXT REFERENCES users(id)
+    user_id TEXT REFERENCES users(id), priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high'))
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -30,6 +31,9 @@ db.exec(`
 const columns = db.pragma("table_info(tasks)") as { name: string }[];
 if (!columns.some((column) => column.name === "user_id")) {
   db.exec("ALTER TABLE tasks ADD COLUMN user_id TEXT REFERENCES users(id)");
+}
+if (!columns.some((column) => column.name === "priority")) {
+  db.exec("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high'))");
 }
 db.exec("CREATE INDEX IF NOT EXISTS tasks_user_id ON tasks(user_id)");
 
@@ -52,7 +56,7 @@ export function deleteSession(tokenHash: string): void {
   db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
 }
 export function listTasks(userId: string): Task[] {
-  return (db.prepare("SELECT id, title, completed FROM tasks WHERE user_id = ? ORDER BY rowid").all(userId) as TaskRow[]).map(toTask);
+  return (db.prepare("SELECT id, title, completed, priority FROM tasks WHERE user_id = ? ORDER BY rowid").all(userId) as TaskRow[]).map(toTask);
 }
 export function listTasksPage(userId: string, status: TaskStatus, requestedPage: number, pageSize: number, search: string, sort: TaskSort): TaskPage {
   const row = db.prepare("SELECT COUNT(*) AS all_count, SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS completed_count FROM tasks WHERE user_id = ? AND instr(title, ?) > 0").get(userId, search) as { all_count: number; completed_count: number | null };
@@ -63,18 +67,18 @@ export function listTasksPage(userId: string, status: TaskStatus, requestedPage:
   const filter = status === "all" ? "" : " AND completed = ?";
   const params = status === "all" ? [userId, search, pageSize, (page - 1) * pageSize] : [userId, search, Number(status === "completed"), pageSize, (page - 1) * pageSize];
   const direction = sort === "newest" ? "DESC" : "ASC";
-  const rows = db.prepare(`SELECT id, title, completed FROM tasks WHERE user_id = ? AND instr(title, ?) > 0${filter} ORDER BY rowid ${direction} LIMIT ? OFFSET ?`).all(...params) as TaskRow[];
+  const rows = db.prepare(`SELECT id, title, completed, priority FROM tasks WHERE user_id = ? AND instr(title, ?) > 0${filter} ORDER BY rowid ${direction} LIMIT ? OFFSET ?`).all(...params) as TaskRow[];
   return { items: rows.map(toTask), page, pageSize, search, sort, total, totalPages, counts };
 }
 export function findTask(id: string, userId: string): Task | undefined {
-  const row = db.prepare("SELECT id, title, completed FROM tasks WHERE id = ? AND user_id = ?").get(id, userId) as TaskRow | undefined;
+  const row = db.prepare("SELECT id, title, completed, priority FROM tasks WHERE id = ? AND user_id = ?").get(id, userId) as TaskRow | undefined;
   return row && toTask(row);
 }
 export function insertTask(task: Task, userId: string): void {
-  db.prepare("INSERT INTO tasks (id, title, completed, user_id) VALUES (?, ?, ?, ?)").run(task.id, task.title, Number(task.completed), userId);
+  db.prepare("INSERT INTO tasks (id, title, completed, user_id, priority) VALUES (?, ?, ?, ?, ?)").run(task.id, task.title, Number(task.completed), userId, task.priority);
 }
 export function updateTask(task: Task, userId: string): void {
-  db.prepare("UPDATE tasks SET title = ?, completed = ? WHERE id = ? AND user_id = ?").run(task.title, Number(task.completed), task.id, userId);
+  db.prepare("UPDATE tasks SET title = ?, completed = ?, priority = ? WHERE id = ? AND user_id = ?").run(task.title, Number(task.completed), task.priority, task.id, userId);
 }
 export function deleteTask(id: string, userId: string): boolean {
   return db.prepare("DELETE FROM tasks WHERE id = ? AND user_id = ?").run(id, userId).changes > 0;

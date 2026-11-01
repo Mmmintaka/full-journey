@@ -9,3 +9,5 @@
 .search-form{display:flex;gap:8px;margin-top:18px}.search-form input{min-width:0;flex:1;border:1px solid #d3dfd8;border-radius:9px;background:#fbfdfb;padding:10px 14px;color:#203130;font:inherit;font-size:14px}.search-form input:focus{outline:2px solid #80ad9b;outline-offset:1px}.search-hint{font-size:12px;color:#71837b;margin:10px 0 0;overflow-wrap:anywhere}
 
 .task-sort{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:18px;color:#647b72;font-size:13px}.task-sort select{border:1px solid #d3dfd8;border-radius:8px;background:#fff;padding:8px 10px;color:#203130;font:inherit}.task-sort select:focus-visible{outline:2px solid #80ad9b;outline-offset:1px}.task-sort select:disabled{opacity:.55}
+
+.add-form select,.task-actions select{border:1px solid #d3dfd8;border-radius:8px;background:#fff;color:#426459;font:inherit;padding:7px 9px;font-size:13px}.add-form select:focus-visible,.task-actions select:focus-visible{outline:2px solid #80ad9b;outline-offset:1px}select:disabled{opacity:.55;cursor:not-allowed}

@@ -19,7 +19,8 @@ export async function createPostgresStore(connectionString: string) {
     );
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, completed BOOLEAN NOT NULL DEFAULT FALSE,
-      user_id TEXT NOT NULL REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      user_id TEXT NOT NULL REFERENCES users(id), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      priority TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high'))
     );
     CREATE INDEX IF NOT EXISTS tasks_user_id ON tasks(user_id);
     CREATE TABLE IF NOT EXISTS sessions (
@@ -48,7 +49,7 @@ export async function createPostgresStore(connectionString: string) {
     },
     async deleteSession(tokenHash: string): Promise<void> { await db.query("DELETE FROM sessions WHERE token_hash = $1", [tokenHash]); },
     async listTasks(userId: string): Promise<Task[]> {
-      return (await db.query<Task>("SELECT id, title, completed FROM tasks WHERE user_id = $1 ORDER BY created_at, id", [userId])).rows;
+      return (await db.query<Task>("SELECT id, title, completed, priority FROM tasks WHERE user_id = $1 ORDER BY created_at, id", [userId])).rows;
     },
     async listTasksPage(userId: string, status: TaskStatus, requestedPage: number, pageSize: number, search: string, sort: TaskSort): Promise<TaskPage> {
       // 统计全部状态，再查询所选状态的当前页；用户 ID 始终由后端会话提供。
@@ -65,18 +66,18 @@ export async function createPostgresStore(connectionString: string) {
       if (status !== "all") params.push(status === "completed");
       params.push(pageSize, (page - 1) * pageSize);
       const direction = sort === "newest" ? "DESC" : "ASC";
-      const query = `SELECT id, title, completed FROM tasks WHERE user_id = $1 AND strpos(title, $2) > 0${filter} ORDER BY created_at ${direction}, id ${direction} LIMIT $${params.length - 1} OFFSET $${params.length}`;
+      const query = `SELECT id, title, completed, priority FROM tasks WHERE user_id = $1 AND strpos(title, $2) > 0${filter} ORDER BY created_at ${direction}, id ${direction} LIMIT $${params.length - 1} OFFSET $${params.length}`;
       const items = (await db.query<Task>(query, params)).rows;
       return { items, page, pageSize, search, sort, total, totalPages, counts };
     },
     async findTask(id: string, userId: string): Promise<Task | undefined> {
-      return (await db.query<Task>("SELECT id, title, completed FROM tasks WHERE id = $1 AND user_id = $2", [id, userId])).rows[0];
+      return (await db.query<Task>("SELECT id, title, completed, priority FROM tasks WHERE id = $1 AND user_id = $2", [id, userId])).rows[0];
     },
     async insertTask(task: Task, userId: string): Promise<void> {
-      await db.query("INSERT INTO tasks (id, title, completed, user_id) VALUES ($1, $2, $3, $4)", [task.id, task.title, task.completed, userId]);
+      await db.query("INSERT INTO tasks (id, title, completed, user_id, priority) VALUES ($1, $2, $3, $4, $5)", [task.id, task.title, task.completed, userId, task.priority]);
     },
     async updateTask(task: Task, userId: string): Promise<void> {
-      await db.query("UPDATE tasks SET title = $1, completed = $2 WHERE id = $3 AND user_id = $4", [task.title, task.completed, task.id, userId]);
+      await db.query("UPDATE tasks SET title = $1, completed = $2, priority = $3 WHERE id = $4 AND user_id = $5", [task.title, task.completed, task.priority, task.id, userId]);
     },
     async deleteTask(id: string, userId: string): Promise<boolean> {
       return (await db.query("DELETE FROM tasks WHERE id = $1 AND user_id = $2", [id, userId])).rowCount === 1;

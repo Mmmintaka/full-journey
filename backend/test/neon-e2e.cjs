@@ -44,12 +44,15 @@ const findPort = () => new Promise((resolve, reject) => {
       const user = await response.json(); assert.equal(user.id, users[users.length - 1]);
       cookies.push(response.headers.get('set-cookie').split(';')[0]);
     }
-    response = await call('/tasks', options('POST', { title: 'Neon 临时验证任务' }, cookies[0])); assert.equal(response.status, 201); const task = await response.json();
+    response = await call('/tasks', options('POST', { title: 'Neon 临时验证任务' }, cookies[0])); assert.equal(response.status, 201); const task = await response.json(); assert.equal(task.priority, 'medium');
     response = await call('/tasks', options('GET', null, cookies[1])); assert.deepEqual(await response.json(), []);
     response = await call(`/tasks/${task.id}`, options('PATCH', { completed: true }, cookies[1])); assert.equal(response.status, 404);
+    response = await call(`/tasks/${task.id}`, options('PATCH', { priority: 'high' }, cookies[1])); assert.equal(response.status, 404);
+    response = await call(`/tasks/${task.id}`, options('PATCH', { priority: 'high' }, cookies[0])); assert.equal(response.status, 200); assert.equal((await response.json()).priority, 'high');
+    response = await call(`/tasks/${task.id}`, options('PATCH', { priority: 'bad' }, cookies[0])); assert.equal(response.status, 400);
     response = await call(`/tasks/${task.id}`, options('PATCH', { completed: true }, cookies[0])); assert.equal(response.status, 200); assert.equal((await response.json()).completed, true);
     for (let i = 0; i < 5; i++) {
-      response = await call('/tasks', options('POST', { title: `分页测试 ${i}` }, cookies[0])); assert.equal(response.status, 201);
+      response = await call('/tasks', options('POST', { title: `分页测试 ${i}`, priority: i === 0 ? 'low' : 'high' }, cookies[0])); assert.equal(response.status, 201); assert.equal((await response.json()).priority, i === 0 ? 'low' : 'high');
     }
     response = await call('/tasks?status=active&page=2&pageSize=3', options('GET', null, cookies[0]));
     assert.equal(response.status, 200); const activePage = await response.json();
@@ -65,7 +68,7 @@ const findPort = () => new Promise((resolve, reject) => {
     response = await call('/tasks?search=' + encodeURIComponent('分页测试'), options('GET', null, cookies[1])); assert.equal((await response.json()).total, 0);
     response = await call('/tasks?search=' + encodeURIComponent('%'), options('GET', null, cookies[0])); assert.equal((await response.json()).total, 0);
     response = await call('/tasks?status=completed&page=1&pageSize=3', options('GET', null, cookies[0]));
-    const completedPage = await response.json(); assert.equal(completedPage.total, 1); assert.equal(completedPage.items[0].id, task.id);
+    const completedPage = await response.json(); assert.equal(completedPage.total, 1); assert.equal(completedPage.items[0].id, task.id); assert.equal(completedPage.items[0].priority, 'high');
     response = await call('/tasks?status=all&page=1&pageSize=3', options('GET', null, cookies[1]));
     assert.equal((await response.json()).total, 0);
     response = await call(`/tasks/${task.id}`, options('DELETE', null, cookies[0])); assert.equal(response.status, 204);

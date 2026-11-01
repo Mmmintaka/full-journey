@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 const apiUrl = "/api";
-type Task = { id: string; title: string; completed: boolean };
+type Priority = "low" | "medium" | "high";
+type Task = { id: string; title: string; completed: boolean; priority?: Priority };
 type TaskSort = "oldest" | "newest";
 type TaskFilter = "all" | "active" | "completed";
-type TaskPage = { items: Task[]; page: number; pageSize: number; search?: string; sort?: TaskSort; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
+type TaskPage = { items: Task[]; page: number; pageSize: number; search?: string; sort?: TaskSort; total: number; totalPages: number; counts: { all: number; active: number; completed: number }; capabilities?: { priority?: boolean } };
 const PAGE_SIZE = 10;
 type User = { id: string; username: string };
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
@@ -40,6 +41,7 @@ export default function Home() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [title, setTitle] = useState("");
+  const [newPriority, setNewPriority] = useState<Priority>("medium");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [loading, setLoading] = useState(false);
@@ -102,7 +104,7 @@ export default function Home() {
   }
   async function logout() {
     setBusy(true); setError("");
-    try { await request("/auth/logout", { method: "POST" }); setUser(null); setPageData(null); setTitle(""); setFilter("all"); setSort("oldest"); setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); setNotice("已退出登录。"); }
+    try { await request("/auth/logout", { method: "POST" }); setUser(null); setPageData(null); setTitle(""); setNewPriority("medium"); setFilter("all"); setSort("oldest"); setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); setNotice("已退出登录。"); }
     catch (err) { handleError(err); }
     finally { setBusy(false); }
   }
@@ -110,11 +112,11 @@ export default function Home() {
     event.preventDefault();
     if (!title.trim()) { setError("请输入任务标题。"); return; }
     setBusy(true); setError("");
-    try { await request<Task>("/tasks", { method: "POST", body: JSON.stringify({ title }) }); setTitle(""); setFilter("all"); setSearchInput(""); setSearch(""); setPage(1); setRevision((current) => current + 1); }
+    try { await request<Task>("/tasks", { method: "POST", body: JSON.stringify({ title, ...(pageData?.capabilities?.priority ? { priority: newPriority } : {}) }) }); setTitle(""); setNewPriority("medium"); setFilter("all"); setSearchInput(""); setSearch(""); setPage(1); setRevision((current) => current + 1); }
     catch (err) { handleError(err); }
     finally { setBusy(false); }
   }
-  async function updateTask(id: string, changes: Partial<Pick<Task, "title" | "completed">>) {
+  async function updateTask(id: string, changes: Partial<Pick<Task, "title" | "completed" | "priority">>) {
     setBusy(true); setError("");
     try { await request<Task>(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(changes) }); setEditingId(null); setRevision((current) => current + 1); }
     catch (err) { handleError(err); }
@@ -146,7 +148,7 @@ export default function Home() {
         <p className="auth-switch">{authMode === "login" ? "还没有账号？" : "已有账号？"} <button type="button" className="text-button" disabled={busy} onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setError(""); setNotice(""); setPassword(""); }}>{authMode === "login" ? "注册" : "登录"}</button></p>
       </section> : <section className="workspace" aria-labelledby="workspace-title">
         <div className="workspace-heading"><div><p className="small-label">你的空间</p><h2 id="workspace-title">今天的任务</h2></div><span className="count">{counts.completed} / {counts.all} 已完成</span></div>
-        <form className="add-form" onSubmit={createTask}><label className="sr-only" htmlFor="new-task">新任务标题</label><input id="new-task" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="添加一件要做的事…" maxLength={100} disabled={loading || busy} /><button className="primary" type="submit" disabled={loading || busy}>添加任务</button></form>
+        <form className="add-form" onSubmit={createTask}><label className="sr-only" htmlFor="new-task">新任务标题</label><input id="new-task" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="添加一件要做的事…" maxLength={100} disabled={loading || busy} /><label className="sr-only" htmlFor="new-priority">新任务优先级</label><select id="new-priority" value={newPriority} disabled={loading || busy || !pageData?.capabilities?.priority} onChange={(event) => setNewPriority(event.target.value as Priority)}><option value="low">低优先级</option><option value="medium">中优先级</option><option value="high">高优先级</option></select><button className="primary" type="submit" disabled={loading || busy}>添加任务</button></form>
         <form className="search-form" onSubmit={(event) => { event.preventDefault(); setSearch(searchInput.trim()); setPage(1); setEditingId(null); }}><label className="sr-only" htmlFor="search-tasks">搜索任务标题</label><input id="search-tasks" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} placeholder="搜索任务标题（区分大小写）" disabled={busy} /><button type="submit" disabled={busy}>搜索</button>{(search || searchInput) && <button type="button" disabled={busy} onClick={() => { setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); }}>清除</button>}</form>
         {search && <p className="search-hint">以下数量和列表只包含匹配“{search}”的任务</p>}
         {error && <div className="error" role="alert">{error} <button type="button" onClick={() => setRevision((current) => current + 1)} disabled={busy}>重新读取</button></div>}
@@ -156,7 +158,7 @@ export default function Home() {
         </nav>
         {loading ? <p className="state-message">正在读取任务…</p> : !pageData && error ? null : search && counts.all === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">⌕</span><h3>没有找到匹配的任务</h3><p>试试其他关键词，或清除搜索。</p></div> : counts.all === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">✓</span><h3>清单还是空的</h3><p>从上方添加你的第一件任务。</p></div> : tasks.length === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">✓</span><h3>{filter === "active" ? "没有待完成的任务" : "还没有已完成的任务"}</h3><p>{filter === "active" ? "可以添加新任务，或查看全部任务。" : "完成任务后，它会出现在这里。"}</p></div> : <ul className="task-list">{tasks.map((task) => <li className="task-row" key={task.id}>
           <input className="checkbox" type="checkbox" checked={task.completed} disabled={busy} aria-label={`${task.completed ? "标记为未完成" : "标记为完成"}：${task.title}`} onChange={(event) => void updateTask(task.id, { completed: event.target.checked })} />
-          {editingId === task.id ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); void updateTask(task.id, { title: editTitle }); }}><label className="sr-only" htmlFor={`edit-${task.id}`}>修改任务标题</label><input id={`edit-${task.id}`} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={100} autoFocus disabled={busy} /><button type="submit" disabled={busy}>保存</button><button type="button" disabled={busy} onClick={() => setEditingId(null)}>取消</button></form> : <><span className={`task-title ${task.completed ? "done" : ""}`}>{task.title}</span><div className="task-actions"><button type="button" disabled={busy} onClick={() => { setEditingId(task.id); setEditTitle(task.title); }}>编辑</button><button type="button" disabled={busy} onClick={() => void deleteTask(task.id)}>删除</button></div></>}
+          {editingId === task.id ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); void updateTask(task.id, { title: editTitle }); }}><label className="sr-only" htmlFor={`edit-${task.id}`}>修改任务标题</label><input id={`edit-${task.id}`} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={100} autoFocus disabled={busy} /><button type="submit" disabled={busy}>保存</button><button type="button" disabled={busy} onClick={() => setEditingId(null)}>取消</button></form> : <><span className={`task-title ${task.completed ? "done" : ""}`}>{task.title}</span><div className="task-actions"><label className="sr-only" htmlFor={`priority-${task.id}`}>优先级：{task.title}</label><select id={`priority-${task.id}`} aria-label={`优先级：${task.title}`} value={task.priority ?? "medium"} disabled={busy || !pageData?.capabilities?.priority} onChange={(event) => void updateTask(task.id, { priority: event.target.value as Priority })}><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select><button type="button" disabled={busy} onClick={() => { setEditingId(task.id); setEditTitle(task.title); }}>编辑</button><button type="button" disabled={busy} onClick={() => void deleteTask(task.id)}>删除</button></div></>}
         </li>)}</ul>}
         {pageData && pageData.totalPages > 1 && <nav className="pagination" aria-label="任务分页"><span>第 {pageData.page} / {pageData.totalPages} 页，共 {pageData.total} 项</span><div><button type="button" disabled={loading || busy || page <= 1} onClick={() => { setEditingId(null); setPage((current) => current - 1); }}>上一页</button><button type="button" disabled={loading || busy || page >= pageData.totalPages} onClick={() => { setEditingId(null); setPage((current) => current + 1); }}>下一页</button></div></nav>}
       </section>}

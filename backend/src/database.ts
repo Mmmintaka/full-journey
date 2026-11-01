@@ -1,5 +1,5 @@
 import type { Task, User } from "./sqlite";
-export type { Task, User } from "./sqlite";
+export type { Task, User, Priority } from "./sqlite";
 export type TaskSort = "oldest" | "newest";
 export type TaskStatus = "all" | "active" | "completed";
 export type TaskPage = { items: Task[]; page: number; pageSize: number; search: string; sort: TaskSort; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
