@@ -42,6 +42,22 @@ const sessionLifetime = 7 * 24 * 60 * 60 * 1000;
 const scrypt = promisify(scryptCallback);
 const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
+// 首次请求时共享一次数据库初始化；失败后允许下一次请求重试。
+let databaseReady: Promise<void> | undefined;
+function ensureDatabase(): Promise<void> {
+  if (!databaseReady) {
+    databaseReady = initializeDatabase().catch((error: unknown) => {
+      databaseReady = undefined;
+      throw error;
+    });
+  }
+  return databaseReady;
+}
+app.use(async (_req, res, next) => {
+  try { await ensureDatabase(); next(); }
+  catch { res.status(503).json({ error: "数据库暂不可用，请稍后重试。" }); }
+});
+
 app.use(cors({ origin: frontendOrigin, credentials: true }));
 // Cookie 自动携带，因此拒绝来自其他浏览器来源的写请求，防止跨站请求伪造。
 app.use((req, res, next) => {
@@ -147,9 +163,13 @@ app.delete("/tasks/:id", async (req, res) => {
   if (!(await deleteTask(req.params.id, res.locals.user.id))) { res.status(404).json({ error: "任务不存在。" }); return; }
   res.status(204).end();
 });
-initializeDatabase().then(() => {
-  app.listen(port, () => { console.log(`Backend listening on http://localhost:${port}`); });
-}).catch((error: unknown) => {
-  console.error("数据库初始化失败，请检查连接配置。", error);
-  process.exitCode = 1;
-});
+// Vercel 负责监听端口；本地开发仍然作为独立 Node 服务启动。
+if (!process.env.VERCEL) {
+  ensureDatabase().then(() => {
+    app.listen(port, () => { console.log(`Backend listening on http://localhost:${port}`); });
+  }).catch(() => {
+    console.error("数据库初始化失败，请检查连接配置。");
+    process.exitCode = 1;
+  });
+}
+module.exports = app;

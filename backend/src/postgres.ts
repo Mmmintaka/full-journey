@@ -12,7 +12,8 @@ export function secureConnectionString(connectionString: string): string {
 
 export async function createPostgresStore(connectionString: string) {
   const db = new Pool({ connectionString: secureConnectionString(connectionString), max: 5, idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000 });
-  await db.query(`
+  try {
+    await db.query(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL
     );
@@ -26,6 +27,10 @@ export async function createPostgresStore(connectionString: string) {
       expires_at BIGINT NOT NULL
     );
   `);
+  } catch (error) {
+    await db.end();
+    throw error;
+  }
   return {
     async findUserByName(username: string): Promise<User | undefined> {
       return (await db.query<User>('SELECT id, username, password_hash AS "passwordHash" FROM users WHERE username = $1', [username])).rows[0];

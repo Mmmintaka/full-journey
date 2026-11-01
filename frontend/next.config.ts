@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 // 浏览器只访问同源的 /api；Next.js 将请求转发给独立后端。
 const configuredBackend = process.env.BACKEND_URL;
 if (process.env.VERCEL && !configuredBackend) {
-  throw new Error("请在 Vercel 中配置 BACKEND_URL，指向 Render 后端的 HTTPS 地址。");
+  throw new Error("请在 Vercel 中配置 BACKEND_URL，指向独立后端的 HTTPS 地址。");
 }
 const backendUrl = (configuredBackend ?? "http://localhost:4000").replace(/\/$/, "");
 if (process.env.VERCEL) {

@@ -48,8 +48,8 @@ Neon CLI 生成的根目录 `.env.local` 或 `.env` 会在后端启动时加载�
 
 浏览器请求同源 `/api/...`，Next.js 将其转发到 Express。开发时默认转发到 `http://localhost:4000`；`frontend/next.config.ts` 使用 `BACKEND_URL` 指定其他后端地址，生产构建前需要设置。Cookie 对浏览器来说来自前端域名，保持 `SameSite=Lax`，无需依赖第三方 Cookie。后端 `FRONTEND_ORIGIN` 要配置为实际前端 HTTPS 源（不含末尾斜线）。
 
-目标方案是 Vercel 部署 Next.js，Render 部署 Express，云 PostgreSQL 存储数据。`render.yaml` 是可选的 Render Blueprint，指定免费新加坡服务，并要求在平台中提供数据库连接串和前端地址。生产后端需要 `NODE_ENV=production`、`DATABASE_URL`、`FRONTEND_ORIGIN`、`COOKIE_SECURE=true`。Render 使用根目录执行 `npm ci --include=dev && npm run build -w backend`，启动命令为 `npm run start -w backend`；Node 版本由 `.node-version` 指定。Vercel 的 `BACKEND_URL` 指向 Render 的 HTTPS 地址。真实平台配置和代理链尚未验证，不能视为已经部署。
+目标方案是两个独立的 Vercel 项目：`frontend` 是 Next.js，`backend` 是 Express Function；Neon PostgreSQL 存储数据。后端首次请求时初始化数据库，并由平台管理请求与实例，本地仍使用 Node 服务。后端需要 `DATABASE_URL`、`FRONTEND_ORIGIN`（前端 HTTPS 地址）和 `COOKIE_SECURE=true`；前端构建需要 `BACKEND_URL`（后端 HTTPS 地址）。数据库密钥只填入平台环境变量，不能提交。两个项目实际部署后仍需验证转发、登录 Cookie 和持久化。
 
-注册接口按 IP 限制为每小时 5 次，登录接口每 15 分钟 10 次，超过返回 429。计数在单个 Node.js 进程内，重启会重置，多实例不共享；代理环境下也必须核实可信代理链和客户端 IP 才能生效。只在确认代理层数后设置 `TRUST_PROXY_HOPS`，不要随意信任转发头。正式开放注册前应使用可靠的共享限流与代理配置，并验证备份恢复。
+注册接口按 IP 限制为每小时 5 次，登录接口每 15 分钟 10 次，超过返回 429。计数在单个 Node.js 进程内，重启会重置，多实例不共享；Vercel 转发链下 IP 的归属也尚未确认，因此不能依赖它作为有效的全局防护。只在确认代理层数后设置 `TRUST_PROXY_HOPS`，不要随意信任转发头。正式开放注册前应使用可靠的共享限流与代理配置，并验证备份恢复。
 
 运行 `npm run test:backend` 可验证 SQLite 及 PostgreSQL 模拟器下的认证和权限隔离；模拟器不能代替真实 PostgreSQL 联调。
