@@ -43,9 +43,13 @@ async function run(postgres, serverless = false) {
   result = await call('/tasks?status=active&page=2&pageSize=3', request('GET', null, alice)); const second = await result.json(); assert.equal(second.items.length, 3);
   assert.equal(new Set([...first.items, ...second.items].map(t => t.id)).size, 6);
   result = await call('/tasks?status=completed&page=1&pageSize=2', request('GET', null, alice)); const completed = await result.json(); assert.equal(completed.total, 1); assert.equal(completed.items[0].id, task.id);
+  result = await call('/tasks?status=active&page=2&pageSize=2&search=' + encodeURIComponent('分页任务'), request('GET', null, alice));
+  assert.equal(result.status, 200); const searched = await result.json(); assert.equal(searched.search, '分页任务'); assert.equal(searched.total, 6); assert.equal(searched.items.length, 2); assert.deepEqual(searched.counts, { all: 6, active: 6, completed: 0 });
+  result = await call('/tasks?search=' + encodeURIComponent('分页任务'), request('GET', null, bobby)); assert.equal((await result.json()).total, 0);
+  result = await call('/tasks?search=' + encodeURIComponent('%'), request('GET', null, alice)); assert.equal((await result.json()).total, 0);
   result = await call('/tasks?status=all&page=99&pageSize=3', request('GET', null, alice)); assert.equal((await result.json()).page, 3);
   result = await call('/tasks?status=active&page=1&pageSize=3', request('GET', null, bobby)); assert.deepEqual((await result.json()).counts, {all:0, active:0, completed:0});
-  for (const query of ['status=wrong', 'page=0', 'pageSize=51', 'page=1&page=2']) {
+  for (const query of ['status=wrong', 'page=0', 'pageSize=51', 'page=1&page=2', 'search=a&search=b', 'search=' + 'x'.repeat(101)]) {
     result = await call(`/tasks?${query}`, request('GET', null, alice)); assert.equal(result.status, 400);
   }
   for (const item of second.items) { result = await call(`/tasks/${item.id}`, request('DELETE', null, alice)); assert.equal(result.status, 204); }

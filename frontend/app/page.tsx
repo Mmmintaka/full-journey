@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 const apiUrl = "/api";
 type Task = { id: string; title: string; completed: boolean };
 type TaskFilter = "all" | "active" | "completed";
-type TaskPage = { items: Task[]; page: number; pageSize: number; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
+type TaskPage = { items: Task[]; page: number; pageSize: number; search?: string; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
 const PAGE_SIZE = 10;
 type User = { id: string; username: string };
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
@@ -35,6 +35,8 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [filter, setFilter] = useState<TaskFilter>("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   const [title, setTitle] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -50,10 +52,11 @@ export default function Home() {
   const loadTasks = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError("");
     try {
-      const query = new URLSearchParams({ status: filter, page: String(page), pageSize: String(PAGE_SIZE) });
+      const query = new URLSearchParams({ status: filter, page: String(page), pageSize: String(PAGE_SIZE), search });
       const result = await request<TaskPage | Task[]>(`/tasks?${query}`, { signal });
       if (signal?.aborted) return;
       // 旧后端部署尚未更新时短暂兼容数组响应，避免发布期间中断。
+      if (search && (Array.isArray(result) || result.search !== search)) throw new Error("搜索服务正在更新，请稍后重试。");
       const data: TaskPage = Array.isArray(result) ? (() => {
         const completed = result.filter((task) => task.completed).length;
         const counts = { all: result.length, active: result.length - completed, completed };
@@ -64,9 +67,9 @@ export default function Home() {
       })() : result;
       setPageData(data);
       if (data.page !== page) setPage(data.page);
-    } catch (err) { if (!signal?.aborted) handleError(err); }
+    } catch (err) { if (!signal?.aborted) { setPageData(null); handleError(err); } }
     finally { if (!signal?.aborted) setLoading(false); }
-  }, [filter, page, handleError]);
+  }, [filter, page, search, handleError]);
   useEffect(() => {
     let active = true;
     request<User>("/auth/me").then((current) => { if (active) setUser(current); }).catch((err) => {
@@ -96,7 +99,7 @@ export default function Home() {
   }
   async function logout() {
     setBusy(true); setError("");
-    try { await request("/auth/logout", { method: "POST" }); setUser(null); setPageData(null); setTitle(""); setFilter("all"); setPage(1); setEditingId(null); setNotice("已退出登录。"); }
+    try { await request("/auth/logout", { method: "POST" }); setUser(null); setPageData(null); setTitle(""); setFilter("all"); setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); setNotice("已退出登录。"); }
     catch (err) { handleError(err); }
     finally { setBusy(false); }
   }
@@ -104,7 +107,7 @@ export default function Home() {
     event.preventDefault();
     if (!title.trim()) { setError("请输入任务标题。"); return; }
     setBusy(true); setError("");
-    try { await request<Task>("/tasks", { method: "POST", body: JSON.stringify({ title }) }); setTitle(""); setFilter("all"); setPage(1); setRevision((current) => current + 1); }
+    try { await request<Task>("/tasks", { method: "POST", body: JSON.stringify({ title }) }); setTitle(""); setFilter("all"); setSearchInput(""); setSearch(""); setPage(1); setRevision((current) => current + 1); }
     catch (err) { handleError(err); }
     finally { setBusy(false); }
   }
@@ -141,11 +144,13 @@ export default function Home() {
       </section> : <section className="workspace" aria-labelledby="workspace-title">
         <div className="workspace-heading"><div><p className="small-label">你的空间</p><h2 id="workspace-title">今天的任务</h2></div><span className="count">{counts.completed} / {counts.all} 已完成</span></div>
         <form className="add-form" onSubmit={createTask}><label className="sr-only" htmlFor="new-task">新任务标题</label><input id="new-task" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="添加一件要做的事…" maxLength={100} disabled={loading || busy} /><button className="primary" type="submit" disabled={loading || busy}>添加任务</button></form>
+        <form className="search-form" onSubmit={(event) => { event.preventDefault(); setSearch(searchInput.trim()); setPage(1); setEditingId(null); }}><label className="sr-only" htmlFor="search-tasks">搜索任务标题</label><input id="search-tasks" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} placeholder="搜索任务标题（区分大小写）" disabled={busy} /><button type="submit" disabled={busy}>搜索</button>{(search || searchInput) && <button type="button" disabled={busy} onClick={() => { setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); }}>清除</button>}</form>
+        {search && <p className="search-hint">以下数量和列表只包含匹配“{search}”的任务</p>}
         {error && <div className="error" role="alert">{error} <button type="button" onClick={() => setRevision((current) => current + 1)} disabled={busy}>重新读取</button></div>}
         <nav className="task-filters" aria-label="按状态筛选任务">
           {filters.map((item) => <button key={item.value} type="button" aria-pressed={filter === item.value} onClick={() => { setFilter(item.value); setPage(1); setEditingId(null); }} disabled={loading || busy}>{item.label} <span aria-hidden="true">{item.count}</span></button>)}
         </nav>
-        {loading ? <p className="state-message">正在读取任务…</p> : counts.all === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">✓</span><h3>清单还是空的</h3><p>从上方添加你的第一件任务。</p></div> : tasks.length === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">✓</span><h3>{filter === "active" ? "没有待完成的任务" : "还没有已完成的任务"}</h3><p>{filter === "active" ? "可以添加新任务，或查看全部任务。" : "完成任务后，它会出现在这里。"}</p></div> : <ul className="task-list">{tasks.map((task) => <li className="task-row" key={task.id}>
+        {loading ? <p className="state-message">正在读取任务…</p> : !pageData && error ? null : search && counts.all === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">⌕</span><h3>没有找到匹配的任务</h3><p>试试其他关键词，或清除搜索。</p></div> : counts.all === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">✓</span><h3>清单还是空的</h3><p>从上方添加你的第一件任务。</p></div> : tasks.length === 0 ? <div className="empty"><span className="empty-icon" aria-hidden="true">✓</span><h3>{filter === "active" ? "没有待完成的任务" : "还没有已完成的任务"}</h3><p>{filter === "active" ? "可以添加新任务，或查看全部任务。" : "完成任务后，它会出现在这里。"}</p></div> : <ul className="task-list">{tasks.map((task) => <li className="task-row" key={task.id}>
           <input className="checkbox" type="checkbox" checked={task.completed} disabled={busy} aria-label={`${task.completed ? "标记为未完成" : "标记为完成"}：${task.title}`} onChange={(event) => void updateTask(task.id, { completed: event.target.checked })} />
           {editingId === task.id ? <form className="edit-form" onSubmit={(event) => { event.preventDefault(); void updateTask(task.id, { title: editTitle }); }}><label className="sr-only" htmlFor={`edit-${task.id}`}>修改任务标题</label><input id={`edit-${task.id}`} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={100} autoFocus disabled={busy} /><button type="submit" disabled={busy}>保存</button><button type="button" disabled={busy} onClick={() => setEditingId(null)}>取消</button></form> : <><span className={`task-title ${task.completed ? "done" : ""}`}>{task.title}</span><div className="task-actions"><button type="button" disabled={busy} onClick={() => { setEditingId(task.id); setEditTitle(task.title); }}>编辑</button><button type="button" disabled={busy} onClick={() => void deleteTask(task.id)}>删除</button></div></>}
         </li>)}</ul>}

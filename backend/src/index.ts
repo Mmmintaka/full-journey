@@ -138,13 +138,14 @@ app.use("/tasks", requireUser);
 app.get("/tasks", async (req, res) => {
   // 旧版客户端无查询参数时仍返回数组，确保前后端分别发布时不中断。
   if (Object.keys(req.query).length === 0) { res.json(await listTasks(res.locals.user.id)); return; }
-  const { status = "all", page = "1", pageSize = "10" } = req.query;
-  if (typeof status !== "string" || !["all", "active", "completed"].includes(status) ||
+  const { status = "all", page = "1", pageSize = "10", search = "" } = req.query;
+  if (typeof search !== "string" || search.length > 100 || search.includes("\0") ||
+      typeof status !== "string" || !["all", "active", "completed"].includes(status) ||
       typeof page !== "string" || !/^[1-9]\d{0,5}$/.test(page) ||
       typeof pageSize !== "string" || !/^[1-9]\d?$/.test(pageSize) || Number(pageSize) > 50) {
     res.status(400).json({ error: "筛选或分页参数不合法。" }); return;
   }
-  res.json(await listTasksPage(res.locals.user.id, status as TaskStatus, Number(page), Number(pageSize)));
+  res.json(await listTasksPage(res.locals.user.id, status as TaskStatus, Number(page), Number(pageSize), search.trim()));
 });
 app.post("/tasks", async (req, res) => {
   const title: unknown = req.body?.title;
