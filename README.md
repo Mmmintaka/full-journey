@@ -69,3 +69,9 @@ Neon CLI 生成的根目录 `.env.local` 或 `.env` 会在后端启动时加载�
 接口错误的 JSON 包含 `error` 和 `requestId`；旧前端仍可读取原来的 `error` 字段。格式错误的 JSON 返回 400，过大的请求体返回 413，不存在的接口返回 404；数据库初始化失败返回 503，未预期异常返回 500。5xx 的页面提示中会附带请求编号，可在 Vercel 后端项目的 Logs 页面按编号查找。网络未到达后端、代理自身报错或请求中断时，可能没有后端生成的编号。
 
 错误日志只记录分类和编号，不记录异常原文、堆栈、SQL 或连接串；因此需要更细致的根因排查时，还需要另行配置受控的诊断方案。日志由运行平台收集，本项目没有单独配置日志持久存储或保留期限。
+
+## 自动化测试与 CI
+
+每次推送代码或创建、更新 Pull Request，GitHub Actions 会运行 `.github/workflows/ci.yml`：按 `.node-version` 设置 Node.js，使用 `npm ci` 安装锁定依赖，然后构建前后端并运行 `npm run test:backend`。测试使用临时 SQLite 和 PostgreSQL 模拟器，不连接生产数据库。结果可在仓库的 Actions 页面查看；可在本地运行 `npm run build` 和 `npm run test:backend` 复现主要检查。
+
+当前 Vercel 会独立响应 GitHub 更新并自动部署，GitHub Actions 失败不会自动阻止发布。若要将测试作为发布门禁，需要另行配置与验证 GitHub 分支保护或 Vercel Deployment Checks，并考虑套餐和仓库权限。数据库迁移及真实 PostgreSQL 验证仍需单独执行。
