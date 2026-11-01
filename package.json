@@ -9,7 +9,7 @@
     "dev:frontend": "npm run dev -w frontend",
     "dev:backend": "npm run dev -w backend",
     "build": "npm run build -w backend && npm run build -w frontend",
-    "test:backend": "npm run build -w backend && node backend/test/integration.cjs",
+    "test:backend": "npm run build -w backend && node backend/test/integration.cjs && node backend/test/observability.cjs",
     "db:migrate": "node backend/migrations/run.cjs"
   },
   "dependencies": {

@@ -38,6 +38,10 @@ async function run(postgres, serverless = false) {
     migrated.close();
   }
   let result = await call('/tasks'); assert.equal(result.status, 401);
+  const unauthorized = await result.json(); assert.equal(unauthorized.requestId, result.headers.get('x-request-id')); assert.match(unauthorized.requestId, /^[a-f0-9-]{36}$/);
+  result = await call('/missing?secret=not-for-logs'); assert.equal(result.status, 404); assert.equal((await result.json()).error, '接口不存在。');
+  result = await call('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{bad json' }); assert.equal(result.status, 400); assert.equal((await result.json()).error, '请求的 JSON 格式不正确。');
+  result = await call('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: 'x'.repeat(17000) }) }); assert.equal(result.status, 413); assert.equal((await result.json()).error, '请求内容过大。');
   for (const username of ['alice', 'bobby']) {
     result = await call('/auth/register', request('POST', { username, password: 'password123' })); assert.equal(result.status, 201);
   }

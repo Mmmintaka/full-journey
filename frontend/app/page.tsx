@@ -19,8 +19,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...options?.headers },
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => null) as { error?: string } | null;
-    throw new ApiError(data?.error ?? "请求失败，请稍后重试。", response.status);
+    const data = await response.json().catch(() => null) as { error?: string; requestId?: string } | null;
+    const reference = response.status >= 500 && data?.requestId && /^[a-f0-9-]{36}$/i.test(data.requestId) ? `（请求编号：${data.requestId}）` : "";
+    throw new ApiError((data?.error ?? "请求失败，请稍后重试。") + reference, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -78,7 +79,7 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     request<User>("/auth/me").then((current) => { if (active) setUser(current); }).catch((err) => {
-      if (active && !(err instanceof ApiError && err.status === 401)) setError("无法连接后端，请确认服务已启动后刷新页面。");
+      if (active && !(err instanceof ApiError && err.status === 401)) setError(err instanceof ApiError ? err.message : "无法连接后端，请确认服务已启动后刷新页面。");
     }).finally(() => { if (active) setAuthLoading(false); });
     return () => { active = false; };
   }, []);

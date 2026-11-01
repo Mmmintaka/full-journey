@@ -1,5 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
+import { requestContext, sendError, handleError, DatabaseUnavailableError } from "./observability";
 import { rateLimit } from "express-rate-limit";
 import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
@@ -53,16 +54,16 @@ function ensureDatabase(): Promise<void> {
   }
   return databaseReady;
 }
-app.use(async (_req, res, next) => {
-  try { await ensureDatabase(); next(); }
-  catch { res.status(503).json({ error: "数据库暂不可用，请稍后重试。" }); }
-});
-
+app.use(requestContext);
 app.use(cors({ origin: frontendOrigin, credentials: true }));
+app.use(async (_req, _res, next) => {
+  try { await ensureDatabase(); next(); }
+  catch { next(new DatabaseUnavailableError()); }
+});
 // Cookie 自动携带，因此拒绝来自其他浏览器来源的写请求，防止跨站请求伪造。
 app.use((req, res, next) => {
   if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers.origin && req.headers.origin !== frontendOrigin) {
-    res.status(403).json({ error: "请求来源不被允许。" }); return;
+    sendError(res, 403, "请求来源不被允许。"); return;
   }
   next();
 });
@@ -77,7 +78,7 @@ async function currentUser(req: Request) {
 }
 async function requireUser(req: Request, res: Response, next: NextFunction) {
   const user = await currentUser(req);
-  if (!user) { res.status(401).json({ error: "请先登录。" }); return; }
+  if (!user) { sendError(res, 401, "请先登录。"); return; }
   res.locals.user = user;
   next();
 }
@@ -106,23 +107,23 @@ app.get("/health", (_req, res) => { res.json({ message: "后端服务运行正�
 // 限制每个 IP 的注册和登录请求；当前是进程内计数，适合单实例学习环境。
 const authLimiter = (limit: number, windowMs: number) => rateLimit({
   windowMs, limit, standardHeaders: "draft-8", legacyHeaders: false,
-  message: { error: "尝试次数过多，请稍后再试。" },
+  handler: (_req, res) => sendError(res, 429, "尝试次数过多，请稍后再试。"),
 });
 app.post("/auth/register", authLimiter(5, 60 * 60 * 1000), async (req, res) => {
   const { username, password } = req.body ?? {};
-  if (!validCredentials(username, password)) { res.status(400).json({ error: "用户名需为 3–30 位字母、数字或下划线；密码需至少 8 个字符且不超过 128 字节。" }); return; }
-  if (await findUserByName(username)) { res.status(409).json({ error: "用户名已被使用。" }); return; }
+  if (!validCredentials(username, password)) { sendError(res, 400, "用户名需为 3–30 位字母、数字或下划线；密码需至少 8 个字符且不超过 128 字节。"); return; }
+  if (await findUserByName(username)) { sendError(res, 409, "用户名已被使用。"); return; }
   const passwordHash = await hashPassword(password);
   // 哈希期间可能有并发注册，数据库唯一约束仍会阻止重复用户名。
   try { await createUser({ id: randomUUID(), username, passwordHash }); }
-  catch (error) { if (await findUserByName(username)) { res.status(409).json({ error: "用户名已被使用。" }); return; } throw error; }
+  catch (error) { if (await findUserByName(username)) { sendError(res, 409, "用户名已被使用。"); return; } throw error; }
   res.status(201).json({ message: "注册成功，请登录。" });
 });
 app.post("/auth/login", authLimiter(10, 15 * 60 * 1000), async (req, res) => {
   const { username, password } = req.body ?? {};
-  if (!validCredentials(username, password)) { res.status(401).json({ error: "用户名或密码不正确。" }); return; }
+  if (!validCredentials(username, password)) { sendError(res, 401, "用户名或密码不正确。"); return; }
   const user = await findUserByName(username);
-  if (!user || !(await verifyPassword(password, user.passwordHash))) { res.status(401).json({ error: "用户名或密码不正确。" }); return; }
+  if (!user || !(await verifyPassword(password, user.passwordHash))) { sendError(res, 401, "用户名或密码不正确。"); return; }
   await issueSession(res, user.id);
   res.json({ id: user.id, username: user.username });
 });
@@ -144,7 +145,7 @@ app.get("/tasks", async (req, res) => {
       typeof status !== "string" || !["all", "active", "completed"].includes(status) ||
       typeof page !== "string" || !/^[1-9]\d{0,5}$/.test(page) ||
       typeof pageSize !== "string" || !/^[1-9]\d?$/.test(pageSize) || Number(pageSize) > 50) {
-    res.status(400).json({ error: "筛选或分页参数不合法。" }); return;
+    sendError(res, 400, "筛选或分页参数不合法。"); return;
   }
   const result = await listTasksPage(res.locals.user.id, status as TaskStatus, Number(page), Number(pageSize), search.trim(), sort as TaskSort);
   res.json({ ...result, capabilities: { priority: true } });
@@ -154,24 +155,24 @@ function validPriority(value: unknown): value is Priority {
 }
 app.post("/tasks", async (req, res) => {
   const title: unknown = req.body?.title;
-  if (typeof title !== "string" || !title.trim() || title.trim().length > 100) { res.status(400).json({ error: "任务标题须为 1 到 100 个字符。" }); return; }
+  if (typeof title !== "string" || !title.trim() || title.trim().length > 100) { sendError(res, 400, "任务标题须为 1 到 100 个字符。"); return; }
   const priority: unknown = req.body?.priority === undefined ? "medium" : req.body.priority;
-  if (!validPriority(priority)) { res.status(400).json({ error: "请选择有效的任务优先级。" }); return; }
+  if (!validPriority(priority)) { sendError(res, 400, "请选择有效的任务优先级。"); return; }
   const task: Task = { id: randomUUID(), title: title.trim(), completed: false, priority };
   await insertTask(task, res.locals.user.id);
   res.status(201).json(task);
 });
 app.patch("/tasks/:id", async (req, res) => {
   const task = await findTask(req.params.id, res.locals.user.id);
-  if (!task) { res.status(404).json({ error: "任务不存在。" }); return; }
+  if (!task) { sendError(res, 404, "任务不存在。"); return; }
   const body: unknown = req.body;
-  if (!body || typeof body !== "object" || Array.isArray(body)) { res.status(400).json({ error: "请提供要修改的任务内容。" }); return; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) { sendError(res, 400, "请提供要修改的任务内容。"); return; }
   const { title, completed, priority } = body as Record<string, unknown>;
   if ((title === undefined && completed === undefined && priority === undefined) ||
     (title !== undefined && (typeof title !== "string" || !title.trim() || title.trim().length > 100)) ||
     (completed !== undefined && typeof completed !== "boolean") ||
     (priority !== undefined && !validPriority(priority))) {
-    res.status(400).json({ error: "请提供有效的标题、完成状态或优先级。" }); return;
+    sendError(res, 400, "请提供有效的标题、完成状态或优先级。"); return;
   }
   if (typeof title === "string") task.title = title.trim();
   if (typeof completed === "boolean") task.completed = completed;
@@ -180,9 +181,11 @@ app.patch("/tasks/:id", async (req, res) => {
   res.json(task);
 });
 app.delete("/tasks/:id", async (req, res) => {
-  if (!(await deleteTask(req.params.id, res.locals.user.id))) { res.status(404).json({ error: "任务不存在。" }); return; }
+  if (!(await deleteTask(req.params.id, res.locals.user.id))) { sendError(res, 404, "任务不存在。"); return; }
   res.status(204).end();
 });
+app.use((_req, res) => { sendError(res, 404, "接口不存在。"); });
+app.use(handleError);
 // Vercel 负责监听端口；本地开发仍然作为独立 Node 服务启动。
 if (!process.env.VERCEL) {
   ensureDatabase().then(() => {
