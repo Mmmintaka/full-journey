@@ -5,7 +5,7 @@ import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSa
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { initializeDatabase, createSession, createUser, deleteSession, deleteTask, findSession, findTask, findUserByName, insertTask, listTasks, updateTask, type Task } from "./database";
+import { initializeDatabase, createSession, createUser, deleteSession, deleteTask, findSession, findTask, findUserByName, insertTask, listTasks, listTasksPage, updateTask, type Task, type TaskStatus } from "./database";
 
 // Neon CLI 将连接配置放在项目根目录；显式环境变量优先，其次 .env.local，再是 .env。
 if (process.env.NODE_ENV !== "test") {
@@ -135,7 +135,17 @@ app.post("/auth/logout", async (req, res) => {
 });
 
 app.use("/tasks", requireUser);
-app.get("/tasks", async (_req, res) => { res.json(await listTasks(res.locals.user.id)); });
+app.get("/tasks", async (req, res) => {
+  // 旧版客户端无查询参数时仍返回数组，确保前后端分别发布时不中断。
+  if (Object.keys(req.query).length === 0) { res.json(await listTasks(res.locals.user.id)); return; }
+  const { status = "all", page = "1", pageSize = "10" } = req.query;
+  if (typeof status !== "string" || !["all", "active", "completed"].includes(status) ||
+      typeof page !== "string" || !/^[1-9]\d{0,5}$/.test(page) ||
+      typeof pageSize !== "string" || !/^[1-9]\d?$/.test(pageSize) || Number(pageSize) > 50) {
+    res.status(400).json({ error: "筛选或分页参数不合法。" }); return;
+  }
+  res.json(await listTasksPage(res.locals.user.id, status as TaskStatus, Number(page), Number(pageSize)));
+});
 app.post("/tasks", async (req, res) => {
   const title: unknown = req.body?.title;
   if (typeof title !== "string" || !title.trim() || title.trim().length > 100) { res.status(400).json({ error: "任务标题须为 1 到 100 个字符。" }); return; }

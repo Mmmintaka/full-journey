@@ -48,10 +48,21 @@ const findPort = () => new Promise((resolve, reject) => {
     response = await call('/tasks', options('GET', null, cookies[1])); assert.deepEqual(await response.json(), []);
     response = await call(`/tasks/${task.id}`, options('PATCH', { completed: true }, cookies[1])); assert.equal(response.status, 404);
     response = await call(`/tasks/${task.id}`, options('PATCH', { completed: true }, cookies[0])); assert.equal(response.status, 200); assert.equal((await response.json()).completed, true);
+    for (let i = 0; i < 5; i++) {
+      response = await call('/tasks', options('POST', { title: `分页测试 ${i}` }, cookies[0])); assert.equal(response.status, 201);
+    }
+    response = await call('/tasks?status=active&page=2&pageSize=3', options('GET', null, cookies[0]));
+    assert.equal(response.status, 200); const activePage = await response.json();
+    assert.equal(activePage.page, 2); assert.equal(activePage.total, 5); assert.equal(activePage.items.length, 2);
+    assert.deepEqual(activePage.counts, { all: 6, active: 5, completed: 1 });
+    response = await call('/tasks?status=completed&page=1&pageSize=3', options('GET', null, cookies[0]));
+    const completedPage = await response.json(); assert.equal(completedPage.total, 1); assert.equal(completedPage.items[0].id, task.id);
+    response = await call('/tasks?status=all&page=1&pageSize=3', options('GET', null, cookies[1]));
+    assert.equal((await response.json()).total, 0);
     response = await call(`/tasks/${task.id}`, options('DELETE', null, cookies[0])); assert.equal(response.status, 204);
     response = await call('/auth/logout', options('POST', null, cookies[0])); assert.equal(response.status, 204);
     response = await call('/tasks', options('GET', null, cookies[0])); assert.equal(response.status, 401);
-    console.log('真实 Neon PostgreSQL：注册、登录、增改删、任务隔离及退出验证通过。');
+    console.log('真实 Neon PostgreSQL：注册、登录、筛选、分页、任务隔离及退出验证通过。');
   } catch (error) { console.error('端到端验证失败：', error.message); if (backendErrors) console.error(backendErrors.replace(/postgres(?:ql)?:\/\/[^\s'"`]+/g, '[连接地址已隐藏]')); process.exitCode = 1; }
   finally {
     if (server && server.exitCode === null && !server.killed) await new Promise(resolve => { server.once('exit', resolve); server.kill(); });

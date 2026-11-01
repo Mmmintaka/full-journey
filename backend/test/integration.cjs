@@ -35,10 +35,25 @@ async function run(postgres, serverless = false) {
   result = await call(`/tasks/${task.id}`, request('DELETE', null, bobby)); assert.equal(result.status, 404);
   result = await call(`/tasks/${task.id}`, request('PATCH', { completed: true }, alice)); assert.equal(result.status, 200); assert.equal((await result.json()).completed, true);
   result = await call('/tasks', request('GET', null, alice)); assert.equal((await result.json()).length, 1);
+  for (let i = 0; i < 6; i++) {
+    result = await call('/tasks', request('POST', { title: `分页任务 ${i}` }, alice)); assert.equal(result.status, 201);
+  }
+  result = await call('/tasks?status=active&page=1&pageSize=3', request('GET', null, alice)); assert.equal(result.status, 200);
+  const first = await result.json(); assert.equal(first.total, 6); assert.equal(first.totalPages, 2); assert.equal(first.items.length, 3); assert.deepEqual(first.counts, { all: 7, active: 6, completed: 1 });
+  result = await call('/tasks?status=active&page=2&pageSize=3', request('GET', null, alice)); const second = await result.json(); assert.equal(second.items.length, 3);
+  assert.equal(new Set([...first.items, ...second.items].map(t => t.id)).size, 6);
+  result = await call('/tasks?status=completed&page=1&pageSize=2', request('GET', null, alice)); const completed = await result.json(); assert.equal(completed.total, 1); assert.equal(completed.items[0].id, task.id);
+  result = await call('/tasks?status=all&page=99&pageSize=3', request('GET', null, alice)); assert.equal((await result.json()).page, 3);
+  result = await call('/tasks?status=active&page=1&pageSize=3', request('GET', null, bobby)); assert.deepEqual((await result.json()).counts, {all:0, active:0, completed:0});
+  for (const query of ['status=wrong', 'page=0', 'pageSize=51', 'page=1&page=2']) {
+    result = await call(`/tasks?${query}`, request('GET', null, alice)); assert.equal(result.status, 400);
+  }
+  for (const item of second.items) { result = await call(`/tasks/${item.id}`, request('DELETE', null, alice)); assert.equal(result.status, 204); }
+  result = await call('/tasks?status=active&page=2&pageSize=3', request('GET', null, alice)); const clamped = await result.json(); assert.equal(clamped.page, 1); assert.equal(clamped.totalPages, 1);
   result = await call('/auth/logout', request('POST', null, alice)); assert.equal(result.status, 204);
   result = await call('/tasks', request('GET', null, alice)); assert.equal(result.status, 401);
   await stop();
-  console.log(`${serverless ? 'Vercel handler + ' : ''}${postgres ? 'PostgreSQL 模拟器' : 'SQLite'}：认证、任务与权限隔离通过`);
+  console.log(`${serverless ? 'Vercel handler + ' : ''}${postgres ? 'PostgreSQL 模拟器' : 'SQLite'}：认证、筛选、分页及权限隔离通过`);
 }
 (async () => {
   try { await run(false); await run(true); await run(true, true); }

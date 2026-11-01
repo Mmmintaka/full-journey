@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import type { TaskPage, TaskStatus } from "./database";
 
 export type Task = { id: string; title: string; completed: boolean };
 export type User = { id: string; username: string; passwordHash: string };
@@ -52,6 +53,17 @@ export function deleteSession(tokenHash: string): void {
 }
 export function listTasks(userId: string): Task[] {
   return (db.prepare("SELECT id, title, completed FROM tasks WHERE user_id = ? ORDER BY rowid").all(userId) as TaskRow[]).map(toTask);
+}
+export function listTasksPage(userId: string, status: TaskStatus, requestedPage: number, pageSize: number): TaskPage {
+  const row = db.prepare("SELECT COUNT(*) AS all_count, SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS completed_count FROM tasks WHERE user_id = ?").get(userId) as { all_count: number; completed_count: number | null };
+  const counts = { all: row.all_count, active: row.all_count - (row.completed_count ?? 0), completed: row.completed_count ?? 0 };
+  const total = counts[status];
+  const totalPages = Math.ceil(total / pageSize);
+  const page = Math.min(requestedPage, Math.max(1, totalPages));
+  const filter = status === "all" ? "" : " AND completed = ?";
+  const params = status === "all" ? [userId, pageSize, (page - 1) * pageSize] : [userId, Number(status === "completed"), pageSize, (page - 1) * pageSize];
+  const rows = db.prepare(`SELECT id, title, completed FROM tasks WHERE user_id = ?${filter} ORDER BY rowid LIMIT ? OFFSET ?`).all(...params) as TaskRow[];
+  return { items: rows.map(toTask), page, pageSize, total, totalPages, counts };
 }
 export function findTask(id: string, userId: string): Task | undefined {
   const row = db.prepare("SELECT id, title, completed FROM tasks WHERE id = ? AND user_id = ?").get(id, userId) as TaskRow | undefined;
