@@ -4,8 +4,9 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 const apiUrl = "/api";
 type Task = { id: string; title: string; completed: boolean };
+type TaskSort = "oldest" | "newest";
 type TaskFilter = "all" | "active" | "completed";
-type TaskPage = { items: Task[]; page: number; pageSize: number; search?: string; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
+type TaskPage = { items: Task[]; page: number; pageSize: number; search?: string; sort?: TaskSort; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
 const PAGE_SIZE = 10;
 type User = { id: string; username: string };
 class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
@@ -35,6 +36,7 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
   const [filter, setFilter] = useState<TaskFilter>("all");
+  const [sort, setSort] = useState<TaskSort>("oldest");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [title, setTitle] = useState("");
@@ -52,10 +54,11 @@ export default function Home() {
   const loadTasks = useCallback(async (signal?: AbortSignal) => {
     setLoading(true); setError("");
     try {
-      const query = new URLSearchParams({ status: filter, page: String(page), pageSize: String(PAGE_SIZE), search });
+      const query = new URLSearchParams({ status: filter, page: String(page), pageSize: String(PAGE_SIZE), search, sort });
       const result = await request<TaskPage | Task[]>(`/tasks?${query}`, { signal });
       if (signal?.aborted) return;
       // 旧后端部署尚未更新时短暂兼容数组响应，避免发布期间中断。
+      if (sort === "newest" && (Array.isArray(result) || result.sort !== sort)) throw new Error("排序服务正在更新，请稍后重试。");
       if (search && (Array.isArray(result) || result.search !== search)) throw new Error("搜索服务正在更新，请稍后重试。");
       const data: TaskPage = Array.isArray(result) ? (() => {
         const completed = result.filter((task) => task.completed).length;
@@ -69,7 +72,7 @@ export default function Home() {
       if (data.page !== page) setPage(data.page);
     } catch (err) { if (!signal?.aborted) { setPageData(null); handleError(err); } }
     finally { if (!signal?.aborted) setLoading(false); }
-  }, [filter, page, search, handleError]);
+  }, [filter, page, search, sort, handleError]);
   useEffect(() => {
     let active = true;
     request<User>("/auth/me").then((current) => { if (active) setUser(current); }).catch((err) => {
@@ -99,7 +102,7 @@ export default function Home() {
   }
   async function logout() {
     setBusy(true); setError("");
-    try { await request("/auth/logout", { method: "POST" }); setUser(null); setPageData(null); setTitle(""); setFilter("all"); setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); setNotice("已退出登录。"); }
+    try { await request("/auth/logout", { method: "POST" }); setUser(null); setPageData(null); setTitle(""); setFilter("all"); setSort("oldest"); setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); setNotice("已退出登录。"); }
     catch (err) { handleError(err); }
     finally { setBusy(false); }
   }
@@ -147,6 +150,7 @@ export default function Home() {
         <form className="search-form" onSubmit={(event) => { event.preventDefault(); setSearch(searchInput.trim()); setPage(1); setEditingId(null); }}><label className="sr-only" htmlFor="search-tasks">搜索任务标题</label><input id="search-tasks" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} maxLength={100} placeholder="搜索任务标题（区分大小写）" disabled={busy} /><button type="submit" disabled={busy}>搜索</button>{(search || searchInput) && <button type="button" disabled={busy} onClick={() => { setSearchInput(""); setSearch(""); setPage(1); setEditingId(null); }}>清除</button>}</form>
         {search && <p className="search-hint">以下数量和列表只包含匹配“{search}”的任务</p>}
         {error && <div className="error" role="alert">{error} <button type="button" onClick={() => setRevision((current) => current + 1)} disabled={busy}>重新读取</button></div>}
+        <div className="task-sort"><label htmlFor="task-sort">排序方式</label><select id="task-sort" value={sort} disabled={busy} onChange={(event) => { setSort(event.target.value as TaskSort); setPage(1); setEditingId(null); }}><option value="oldest">最早创建在前</option><option value="newest">最近创建在前</option></select></div>
         <nav className="task-filters" aria-label="按状态筛选任务">
           {filters.map((item) => <button key={item.value} type="button" aria-pressed={filter === item.value} onClick={() => { setFilter(item.value); setPage(1); setEditingId(null); }} disabled={loading || busy}>{item.label} <span aria-hidden="true">{item.count}</span></button>)}
         </nav>

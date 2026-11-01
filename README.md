@@ -40,7 +40,7 @@ npm run dev:frontend
 | `PATCH /tasks/:id` | 修改标题或完成状态 | `{"title":"新标题"}` 或 `{"completed":true}` | 200，修改后的任务 |
 | `DELETE /tasks/:id` | 删除任务 | 无 | 204，无响应体 |
 
-分页支持 `search`（标题包含的文字，区分大小写，最长 100 字符）与 `status=all|active|completed`，`page` 从 1 开始，`pageSize` 为 1–50。响应格式为 `{"items":[],"page":1,"pageSize":10,"search":"","total":0,"totalPages":0,"counts":{"all":0,"active":0,"completed":0}}`；各状态数量随搜索关键词变化；页码超过最后一页时会返回最后一页（空列表时 page 为 1，totalPages 为 0）。无查询参数的 `GET /tasks` 暂时返回旧版数组，供发布期间旧客户端使用。分页使用 OFFSET，数据大量增长或频繁变动时可考虑游标分页；统计和列表是两次查询，并发写入时可能短暂不一致。
+分页支持 `sort=oldest|newest`（按创建时间排序，默认 oldest）和 `search`（标题包含的文字，区分大小写，最长 100 字符）与 `status=all|active|completed`，`page` 从 1 开始，`pageSize` 为 1–50。响应格式为 `{"items":[],"page":1,"pageSize":10,"search":"","sort":"oldest","total":0,"totalPages":0,"counts":{"all":0,"active":0,"completed":0}}`；各状态数量随搜索关键词变化；页码超过最后一页时会返回最后一页（空列表时 page 为 1，totalPages 为 0）。无查询参数的 `GET /tasks` 暂时返回旧版数组，供发布期间旧客户端使用。分页使用 OFFSET，数据大量增长或频繁变动时可考虑游标分页；统计和列表是两次查询，并发写入时可能短暂不一致。
 
 以上任务接口需要登录。本地默认使用 SQLite 文件 `backend/data/tasks.sqlite`；设置 `DATABASE_PATH` 可以修改位置。本地数据库未提交到 Git，保留现有数据。SQLite 使用 WAL，备份时应使用 SQLite 的备份机制。
 

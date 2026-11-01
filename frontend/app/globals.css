@@ -7,3 +7,5 @@
 .pagination{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #e8efeb;padding-top:16px;margin-top:8px;color:#71837b;font-size:13px}.pagination div{display:flex;gap:8px}.pagination button{font-size:13px;padding:7px 12px}@media(max-width:420px){.pagination{flex-wrap:wrap}}
 
 .search-form{display:flex;gap:8px;margin-top:18px}.search-form input{min-width:0;flex:1;border:1px solid #d3dfd8;border-radius:9px;background:#fbfdfb;padding:10px 14px;color:#203130;font:inherit;font-size:14px}.search-form input:focus{outline:2px solid #80ad9b;outline-offset:1px}.search-hint{font-size:12px;color:#71837b;margin:10px 0 0;overflow-wrap:anywhere}
+
+.task-sort{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:18px;color:#647b72;font-size:13px}.task-sort select{border:1px solid #d3dfd8;border-radius:8px;background:#fff;padding:8px 10px;color:#203130;font:inherit}.task-sort select:focus-visible{outline:2px solid #80ad9b;outline-offset:1px}.task-sort select:disabled{opacity:.55}

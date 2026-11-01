@@ -1,7 +1,8 @@
 import type { Task, User } from "./sqlite";
 export type { Task, User } from "./sqlite";
+export type TaskSort = "oldest" | "newest";
 export type TaskStatus = "all" | "active" | "completed";
-export type TaskPage = { items: Task[]; page: number; pageSize: number; search: string; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
+export type TaskPage = { items: Task[]; page: number; pageSize: number; search: string; sort: TaskSort; total: number; totalPages: number; counts: { all: number; active: number; completed: number } };
 
 type Store = {
   findUserByName(username: string): Promise<User | undefined>;
@@ -10,7 +11,7 @@ type Store = {
   findSession(tokenHash: string): Promise<{ id: string; username: string } | undefined>;
   deleteSession(tokenHash: string): Promise<void>;
   listTasks(userId: string): Promise<Task[]>;
-  listTasksPage(userId: string, status: TaskStatus, page: number, pageSize: number, search: string): Promise<TaskPage>;
+  listTasksPage(userId: string, status: TaskStatus, page: number, pageSize: number, search: string, sort: TaskSort): Promise<TaskPage>;
   findTask(id: string, userId: string): Promise<Task | undefined>;
   insertTask(task: Task, userId: string): Promise<void>;
   updateTask(task: Task, userId: string): Promise<void>;
@@ -31,7 +32,7 @@ export async function initializeDatabase(): Promise<void> {
       findSession: async (hash) => sqlite.findSession(hash),
       deleteSession: async (hash) => sqlite.deleteSession(hash),
       listTasks: async (id) => sqlite.listTasks(id),
-      listTasksPage: async (id, status, page, pageSize, search) => sqlite.listTasksPage(id, status, page, pageSize, search),
+      listTasksPage: async (id, status, page, pageSize, search, sort) => sqlite.listTasksPage(id, status, page, pageSize, search, sort),
       findTask: async (id, userId) => sqlite.findTask(id, userId),
       insertTask: async (task, userId) => sqlite.insertTask(task, userId),
       updateTask: async (task, userId) => sqlite.updateTask(task, userId),
@@ -45,7 +46,7 @@ export const createSession = (hash: string, userId: string, expiry: number) => s
 export const findSession = (hash: string) => store.findSession(hash);
 export const deleteSession = (hash: string) => store.deleteSession(hash);
 export const listTasks = (userId: string) => store.listTasks(userId);
-export const listTasksPage = (userId: string, status: TaskStatus, page: number, pageSize: number, search: string) => store.listTasksPage(userId, status, page, pageSize, search);
+export const listTasksPage = (userId: string, status: TaskStatus, page: number, pageSize: number, search: string, sort: TaskSort) => store.listTasksPage(userId, status, page, pageSize, search, sort);
 export const findTask = (id: string, userId: string) => store.findTask(id, userId);
 export const insertTask = (task: Task, userId: string) => store.insertTask(task, userId);
 export const updateTask = (task: Task, userId: string) => store.updateTask(task, userId);

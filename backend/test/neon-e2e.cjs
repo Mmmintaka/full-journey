@@ -57,6 +57,11 @@ const findPort = () => new Promise((resolve, reject) => {
     assert.deepEqual(activePage.counts, { all: 6, active: 5, completed: 1 });
     response = await call('/tasks?status=active&page=2&pageSize=2&search=' + encodeURIComponent('分页测试'), options('GET', null, cookies[0]));
     assert.equal(response.status, 200); const searched = await response.json(); assert.equal(searched.search, '分页测试'); assert.equal(searched.total, 5); assert.equal(searched.items.length, 2); assert.deepEqual(searched.counts, { all: 5, active: 5, completed: 0 });
+    response = await call('/tasks?status=active&page=1&pageSize=5&sort=oldest&search=' + encodeURIComponent('分页测试'), options('GET', null, cookies[0]));
+    const oldest = await response.json(); assert.equal(oldest.sort, 'oldest'); assert.equal(oldest.items.length, 5);
+    response = await call('/tasks?status=active&page=1&pageSize=5&sort=newest&search=' + encodeURIComponent('分页测试'), options('GET', null, cookies[0]));
+    assert.equal(response.status, 200); const newest = await response.json(); assert.equal(newest.sort, 'newest'); assert.deepEqual(newest.items.map(t => t.id), oldest.items.map(t => t.id).reverse());
+    response = await call('/tasks?status=active&sort=newest&search=' + encodeURIComponent('分页测试'), options('GET', null, cookies[1])); assert.equal((await response.json()).total, 0);
     response = await call('/tasks?search=' + encodeURIComponent('分页测试'), options('GET', null, cookies[1])); assert.equal((await response.json()).total, 0);
     response = await call('/tasks?search=' + encodeURIComponent('%'), options('GET', null, cookies[0])); assert.equal((await response.json()).total, 0);
     response = await call('/tasks?status=completed&page=1&pageSize=3', options('GET', null, cookies[0]));

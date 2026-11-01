@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import type { Task, User, TaskStatus, TaskPage } from "./database";
+import type { Task, User, TaskStatus, TaskPage, TaskSort } from "./database";
 
 // 显式保持证书和主机名校验，避免 pg 将来改变 sslmode=require 的语义。
 export function secureConnectionString(connectionString: string): string {
@@ -50,7 +50,7 @@ export async function createPostgresStore(connectionString: string) {
     async listTasks(userId: string): Promise<Task[]> {
       return (await db.query<Task>("SELECT id, title, completed FROM tasks WHERE user_id = $1 ORDER BY created_at, id", [userId])).rows;
     },
-    async listTasksPage(userId: string, status: TaskStatus, requestedPage: number, pageSize: number, search: string): Promise<TaskPage> {
+    async listTasksPage(userId: string, status: TaskStatus, requestedPage: number, pageSize: number, search: string, sort: TaskSort): Promise<TaskPage> {
       // 统计全部状态，再查询所选状态的当前页；用户 ID 始终由后端会话提供。
       const result = await db.query<{ all_count: string; completed_count: string | null }>(
         "SELECT COUNT(*) AS all_count, SUM(CASE WHEN completed THEN 1 ELSE 0 END) AS completed_count FROM tasks WHERE user_id = $1 AND strpos(title, $2) > 0", [userId, search]);
@@ -64,9 +64,10 @@ export async function createPostgresStore(connectionString: string) {
       const filter = status === "all" ? "" : " AND completed = $3";
       if (status !== "all") params.push(status === "completed");
       params.push(pageSize, (page - 1) * pageSize);
-      const query = `SELECT id, title, completed FROM tasks WHERE user_id = $1 AND strpos(title, $2) > 0${filter} ORDER BY created_at, id LIMIT $${params.length - 1} OFFSET $${params.length}`;
+      const direction = sort === "newest" ? "DESC" : "ASC";
+      const query = `SELECT id, title, completed FROM tasks WHERE user_id = $1 AND strpos(title, $2) > 0${filter} ORDER BY created_at ${direction}, id ${direction} LIMIT $${params.length - 1} OFFSET $${params.length}`;
       const items = (await db.query<Task>(query, params)).rows;
-      return { items, page, pageSize, search, total, totalPages, counts };
+      return { items, page, pageSize, search, sort, total, totalPages, counts };
     },
     async findTask(id: string, userId: string): Promise<Task | undefined> {
       return (await db.query<Task>("SELECT id, title, completed FROM tasks WHERE id = $1 AND user_id = $2", [id, userId])).rows[0];
